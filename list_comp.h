@@ -1,5 +1,5 @@
-#ifndef LIST_COMPREHENSION_H
-#define LIST_COMPREHENSION_H
+#ifndef LISTCOMP_LIST_COMPREHENSION_H
+#define LISTCOMP_LIST_COMPREHENSION_H
 
 #include<iostream>
 #include<type_traits>
@@ -8,6 +8,8 @@
 #include<functional>
 #include<algorithm>
 #include<initializer_list>
+#include<variant>
+#include<iterator>
 
 #ifndef LISTCOMP_DISABLE_STD_CONTAINERS
 #include<deque>
@@ -25,27 +27,27 @@ template<auto> class trans;
 
 template<auto P>
 class pred{
-public:
-    decltype(P) predFunctor{P};
+    public:
+        decltype(P) predFunctor{P};
 
-    pred(placeholder &_ph) {};
-    pred(pred &) = delete;
-    pred(pred &&other) = default;
-    pred() = delete;
-    pred &operator=(pred &) = delete;
-    pred &operator=(pred &&) = delete;
+        pred(placeholder &_ph) {};
+        pred(pred &) = delete;
+        pred(pred &&other) = default;
+        pred() = delete;
+        pred &operator=(pred &) = delete;
+        pred &operator=(pred &&) = delete;
 };
 
 namespace impl{
 
 template<typename T>
-using PredFunctor = std::function<bool(T)>;
+using PredFunctor = std::function<bool(const T&)>;
 
 template<typename T>
 using ElseFunctor = std::function<T(T)>;
 
-template <typename RT, typename Arg>
-using TransFunctor = std::function<RT(Arg)>;
+template <typename RT, typename T>
+using TransFunctor = std::function<RT(T)>;
 
 #define ADD_LIST_COMP_OPERATOR(TemplateClass,Typetag)\
 operator TemplateClass<Typetag> () {\
@@ -69,6 +71,79 @@ struct is_cont_impl<Cont, T, std::void_t<decltype(*(std::declval<Cont<T>>().begi
 template <template <typename...> typename Cont, typename T>
 constexpr bool is_cont_v = is_cont_impl<Cont, T>::value;
 
+template <typename OutT>
+class implicit_convertable;
+
+template<typename OutT>
+class iterator : public std::iterator<std::forward_iterator_tag, OutT> {
+    using Iter_t = typename std::vector<OutT>::iterator;
+    private:
+        Iter_t iter;
+        Iter_t end;
+        implicit_convertable<OutT> *enclosing;
+
+        void get_next(){
+            if(enclosing->hasPred && !enclosing->hasElse){
+                auto predFunctor = enclosing->hasPred.value();
+                while (iter != end && !predFunctor(*iter)){
+                    iter++;
+                }
+            }
+        }
+
+        void update_val(){
+            if(enclosing->hasPred && enclosing->hasElse){
+                auto elseFunctor = enclosing->hasElse.value();
+                auto predFunctor = enclosing->hasPred.value();
+                if(!predFunctor(*iter)){
+                    *iter = elseFunctor(*iter);
+                }
+            }
+        }
+
+    public:
+        iterator &operator=(const iterator &other) = default;
+        iterator(const iterator &other) = default;
+        iterator(const Iter_t &_iter, const Iter_t &_end, implicit_convertable<OutT>* _enclosing) : 
+        iter{_iter}, end{_end}, enclosing{_enclosing} {
+            get_next();
+            update_val();
+        };
+
+        OutT &operator*(){
+            return *iter;
+        }
+
+        iterator &operator++(){
+            (*this) = iterator(++iter, end, enclosing);
+            return *this;
+        }
+
+        iterator operator++(int){
+            iterator res(*this);
+            ++(*this);
+            return res;
+        }
+        iterator &operator--(){
+            (*this) = iterator(--iter, end, enclosing);
+            return *this;
+        }
+
+        iterator operator--(int){
+            iterator res(*this);
+            --(*this);
+            return res;
+        }
+
+        bool operator==(const iterator& other){
+            return iter == other.iter;
+        }
+
+        bool operator!=(const iterator& other){
+            return iter != other.iter;
+        }
+};
+
 #ifdef LISTCOMP_CONVERTABLES
 template<typename UT, template<typename...> typename... Ts>
 struct impl_oper : public impl_oper<UT,Ts>... {
@@ -77,104 +152,81 @@ struct impl_oper : public impl_oper<UT,Ts>... {
 
 template<typename UT, template<typename...> typename T>
 struct impl_oper<UT,T> {
-    virtual typename std::vector<UT>::iterator begin() = 0;
-    virtual typename std::vector<UT>::iterator end() = 0;
+    virtual iterator<UT> begin() = 0;
+    virtual iterator<UT> end() = 0;
 
     ADD_LIST_COMP_OPERATOR(T, UT);
 };
 
-template<typename T>
-class implicit_convertable : public impl_oper<T, LISTCOMP_CONVERTABLES>{
+template<typename OutT>
+class implicit_convertable : public impl_oper<OutT, LISTCOMP_CONVERTABLES>{
 #else
-template<typename T>
+template<typename OutT>
 class implicit_convertable{
 #endif
-    using Iter_t = typename std::vector<T>::iterator;
+    using Iter_t = typename std::vector<OutT>::iterator;
     private:
-        std::optional<PredFunctor<T>> hasPred = std::nullopt;
-        std::optional<ElseFunctor<T>> hasElse = std::nullopt;
+        std::vector<OutT> vect;
+        std::optional<PredFunctor<OutT>> hasPred = std::nullopt;
+        std::optional<ElseFunctor<OutT>> hasElse = std::nullopt;
+        std::optional<TransFunctor<OutT, OutT>> hasTrans = std::nullopt;
         bool filterDone = false;
 
-        implicit_convertable() : vec{} {};
+        implicit_convertable() : vect{} {};
+
+        template<typename> friend class iterator;
 
     protected:
-        std::vector<T> vec;
-
-        void do_if_filter(){
-            auto predFunctor = hasPred.value();
-            vec.erase(std::remove_if(vec.begin(), vec.end(), [&](auto i) { return !predFunctor(i); }),vec.end());
-        }
-
-        void do_if_else_filter(){
-            auto predFunctor = hasPred.value();
-            auto elseFunctor = hasElse.value();
-            for(auto &i:vec){
-                if(!predFunctor(i)){
-                    i = elseFunctor(i);
-                }
-            }
-        }
-
-        void do_filter(){
-            if(filterDone) return; //filters already done or no other actions
-            if(hasPred && !hasElse){ //if and no else
-                do_if_filter();
-            }
-            else if(hasPred && hasElse){ //if and else
-                do_if_else_filter();
-            }
-            else return;
-            filterDone = true;
+        auto &vec(){
+            return vect;
         }
 
     public:
-        implicit_convertable(implicit_convertable<T>&& other, PredFunctor<T>&& predFunc) : vec(other.vec), 
-                                                                                        hasPred{predFunc} {};
-        implicit_convertable(implicit_convertable<T>&& other, ElseFunctor<T>&& elseFunc) : vec(other.vec),
-                                                                hasPred{other.hasPred}, hasElse{elseFunc} {};
+        implicit_convertable(implicit_convertable<OutT>&& other, PredFunctor<OutT>&& predFunc) : vect(other.vect),
+                                                                                                 hasPred{predFunc} {};
+        implicit_convertable(implicit_convertable<OutT>&& other, ElseFunctor<OutT>&& elseFunc) : vect(other.vect),
+                                                                                                 hasPred{other.hasPred}, hasElse{elseFunc} {};
 
         template <typename TT>
-        implicit_convertable(const TT &begin, const TT &end) : vec(begin, end){};
+        implicit_convertable(const TT &begin, const TT &end) : vect(begin, end){};
 
-        implicit_convertable(std::vector<T> &&_vec) : vec(std::move(_vec)){};
+        implicit_convertable(std::vector<OutT> &&_vec) : vect(std::move(_vec)){};
 
-        Iter_t begin() {
-            do_filter();
-            return vec.begin();
+        iterator<OutT> begin() {
+            return iterator<OutT>(vec().begin(),vec().end(),this);
         }
 
-        Iter_t end() {
-            do_filter();
-            return vec.end();
+        iterator<OutT> end() {
+            return iterator<OutT>(vec().end(),vec().end(),this);
         }
 
-        auto begin() const {
-            do_filter();
-            return vec.cbegin();
+        // auto begin() const {
+        //     do_filter();
+        //     return vec().cbegin();
+        // }
+
+        // auto end () const {
+        //     do_filter();
+        //     return vec().cend();
+        // }
+
+        operator OutT*(){
+            return &vec()[0];
         }
 
-        auto end () const {
-            do_filter();
-            return vec.cend();
-        }
-
-        operator T*(){
-            return &vec[0];
-        }
-
-        template<typename TT, typename=std::void_t<decltype(TT(std::declval<T>()))>>
+        template<typename TT, typename=std::void_t<decltype(TT(std::declval<OutT>()))>>
         operator TT*() {
-            return &vec[0];
+            return &vec()[0];
         }
 
-        ADD_LIST_COMP_OPERATOR(std::vector, T);
+        ADD_LIST_COMP_OPERATOR(std::vector, OutT);
 
 #ifndef LISTCOMP_DISABLE_STD_CONTAINERS
-        ADD_LIST_COMP_OPERATOR(std::list, T);
+        ADD_LIST_COMP_OPERATOR(std::list, OutT);
 
-        ADD_LIST_COMP_OPERATOR(std::deque, T);
+        ADD_LIST_COMP_OPERATOR(std::deque, OutT);
 
-        ADD_LIST_COMP_OPERATOR(std::forward_list, T);
+        ADD_LIST_COMP_OPERATOR(std::forward_list, OutT);
 #endif
 };
 

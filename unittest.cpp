@@ -93,9 +93,9 @@ int main(){
 
     my_iter<float> myit = i._for(i)._in({10,20,30,40,50})._if(pred<is_odd>(i))._else(i);
 
-    my_iter_2<double> myit2 = trans<msqrt>(i)._for(i)._in({1, 2, 3, 4, 5, 9, 15, 16, 20, 25})._if(pred<is_sqr>(i));
+    my_iter_2<double> myit2 = i._for(i)._in({1, 2, 3, 4, 5, 9, 15, 16, 20, 25})._if(pred<is_sqr>(i));
 
-    for(const auto& ii: vv){
+    for(const auto& ii: cv){
         std::cout << ii << ", ";
     }
 
