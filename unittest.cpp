@@ -75,13 +75,16 @@ bool is_sqr(int i){
     return std::sqrt(i) == int(std::sqrt(i));
 }
 
+int plus_thou(int i){
+    return i + 1000;
+}
+
 int main(){
     using namespace listcomp;
 
     std::vector<int> v{1, 2, 3, 4, 5};
 
-    placeholder i;
-    auto j = new_placeholder();
+    placeholder i,j;
 
     std::vector<char> cv = trans<to_char>(i)._for(i)._in(v);
 
@@ -91,9 +94,9 @@ int main(){
 
     std::list<int> vvv = j._for(j)._in(v);
 
-    my_iter<float> myit = i._for(i)._in({10,20,30,40,50})._if(i<=40.0 _and i>=20 _or i==10 _or pred<is_even>(i))._else(0);
+    my_iter<float> myit = i._for(i)._in({10,20,30,40,50})._if(40.0<=i _and i>=20 _or i==10 _or pred<is_sqr>(i))._else(0);
 
-    my_iter_2<double> myit2 = i._for(i)._in({1, 2, 3, 4, 5, 9, 15, 16, 20, 25})._if(i);
+    my_iter_2<double> myit2 = i._for(i)._in({0, 2, 3, 4, 5, 9, 15, 16, 20, 25})._if(i==9)._else(i+100);
 
     for(const auto& ii: myit){
         std::cout << ii << ", ";
