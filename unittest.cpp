@@ -91,11 +91,11 @@ int main(){
 
     std::list<int> vvv = j._for(j)._in(v);
 
-    my_iter<float> myit = i._for(i)._in({10,20,30,40,50})._if(pred<is_odd>(i))._else(i);
+    my_iter<float> myit = i._for(i)._in({10,20,30,40,50})._if(i<=40.0 _and i>=20 _or i==10 _or pred<is_even>(i))._else(0);
 
-    my_iter_2<double> myit2 = i._for(i)._in({1, 2, 3, 4, 5, 9, 15, 16, 20, 25})._if(pred<is_sqr>(i));
+    my_iter_2<double> myit2 = i._for(i)._in({1, 2, 3, 4, 5, 9, 15, 16, 20, 25})._if(i);
 
-    for(const auto& ii: cv){
+    for(const auto& ii: myit){
         std::cout << ii << ", ";
     }
 

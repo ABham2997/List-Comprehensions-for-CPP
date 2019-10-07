@@ -17,8 +17,10 @@
 #include<forward_list>
 #endif
 
+#ifndef LISTCOMP_DISABLE_OR_AND
 #define _or ||
 #define _and &&
+#endif
 
 namespace listcomp{
 
@@ -28,8 +30,6 @@ template<auto> class trans;
 template<auto P>
 class pred{
     public:
-        decltype(P) predFunctor{P};
-
         pred(placeholder &_ph) {};
         pred(pred &) = delete;
         pred(pred &&other) = default;
@@ -144,6 +144,10 @@ class iterator : public std::iterator<std::forward_iterator_tag, OutT> {
         }
 };
 
+enum class func_flag{
+    npred
+};
+
 #ifdef LISTCOMP_CONVERTABLES
 template<typename UT, template<typename...> typename... Ts>
 struct impl_oper : public impl_oper<UT,Ts>... {
@@ -164,7 +168,6 @@ class implicit_convertable : public impl_oper<OutT, LISTCOMP_CONVERTABLES>{
 template<typename OutT>
 class implicit_convertable{
 #endif
-    using Iter_t = typename std::vector<OutT>::iterator;
     private:
         std::vector<OutT> vect;
         std::optional<PredFunctor<OutT>> hasPred = std::nullopt;
@@ -182,10 +185,18 @@ class implicit_convertable{
         }
 
     public:
-        implicit_convertable(implicit_convertable<OutT>&& other, PredFunctor<OutT>&& predFunc) : vect(other.vect),
-                                                                                                 hasPred{predFunc} {};
-        implicit_convertable(implicit_convertable<OutT>&& other, ElseFunctor<OutT>&& elseFunc) : vect(other.vect),
-                                                                                                 hasPred{other.hasPred}, hasElse{elseFunc} {};
+        implicit_convertable(implicit_convertable<OutT>&& other, func_flag spec) : vect(other.vect) {
+            switch(spec){
+                case func_flag::npred:
+                    hasPred=std::nullopt;
+            }
+        }
+
+        implicit_convertable(implicit_convertable<OutT>&& other, PredFunctor<OutT>&& predFunc) : 
+            vect(other.vect), hasPred{predFunc} {};
+        
+        implicit_convertable(implicit_convertable<OutT>&& other, ElseFunctor<OutT>&& elseFunc) : 
+            vect(other.vect), hasPred{other.hasPred}, hasElse{elseFunc} {};
 
         template <typename TT>
         implicit_convertable(const TT &begin, const TT &end) : vect(begin, end){};
@@ -199,16 +210,6 @@ class implicit_convertable{
         iterator<OutT> end() {
             return iterator<OutT>(vec().end(),vec().end(),this);
         }
-
-        // auto begin() const {
-        //     do_filter();
-        //     return vec().cbegin();
-        // }
-
-        // auto end () const {
-        //     do_filter();
-        //     return vec().cend();
-        // }
 
         operator OutT*(){
             return &vec()[0];
@@ -248,13 +249,82 @@ class if_impl : public implicit_convertable<T>{
         }
 
         else_impl<T> _else(placeholder&){
-            ElseFunctor<T> elseFunctor = [](auto val) { return val; };
-            return else_impl<T>(std::move(*this), std::move(elseFunctor));
+            return else_impl<T>(std::move(*this), func_flag::npred);
         }
 
         else_impl<T> _else(const T& val){
-            ElseFunctor<T> elseFunctor = [&] (auto arg) { return val; };
+            ElseFunctor<T> elseFunctor = [&] (const auto& arg) { return val; };
             return else_impl<T>(std::move(*this), std::move(elseFunctor));
+        }
+};
+
+enum class bool_flag{
+    equals, nequals, lthan, gthan, lthaneq, gthaneq
+};
+
+enum class oper_flag{
+    mult,div,add,sub,mod
+};
+
+template<typename T>
+class proxy_bool{
+    private:
+        proxy_bool() = delete;
+        PredFunctor<T> predFunc;
+
+        template<typename TT> friend class proxy_bool;
+
+    public:
+        auto get_pred() const {
+            return predFunc;
+        }
+
+        proxy_bool(bool_flag flag, const T& value){
+            switch(spec){
+                case bool_flag::equals:
+                    predFunc = [&](auto arg) { return arg == value; };
+                    break;
+                case bool_flag::nequals:
+                    predFunc = [&](auto arg) { return arg != value; };
+                    break;
+                case bool_flag::lthan:
+                    predFunc = [&](auto arg) { return arg < value; };
+                    break;
+                case bool_flag::gthan:
+                    predFunc = [&](auto arg) { return arg > value; };
+                    break;
+                case bool_flag::lthaneq:
+                    predFunc = [&](auto arg) { return arg <= value; };
+                    break;
+                case bool_flag::gthaneq:
+                    predFunc = [&](auto arg) { return arg >= value; };
+                    break;
+            }
+        }
+
+        proxy_bool(const PredFunctor<T> &_predFunc) : predFunc{_predFunc} {};
+
+        template <typename TT>
+        proxy_bool(const proxy_bool<T> &&other) : predFunc{other.predFunc} {};
+
+        template<typename TT>
+        proxy_bool operator&&(const proxy_bool<TT>& other){
+            return PredFunctor<T>{ [=](const auto& arg) { return predFunc(arg) && other.predFunc(arg); } };
+        }
+
+        template<auto P>
+        proxy_bool operator&&(const pred<P>&){
+            return PredFunctor<T>{[=](const auto &arg) { return P(arg) && predFunc(arg); }};
+        }
+
+        template<typename TT>
+        proxy_bool operator||(const proxy_bool<TT>& other){
+            return PredFunctor<T>{ [=](const auto& arg) { return predFunc(arg) || other.predFunc(arg); } };
+        }
+
+        template<auto P>
+        proxy_bool operator||(const pred<P>&){
+            return PredFunctor<T>{[=](const auto &arg) { return predFunc(arg) || P(arg); }};
         }
 };
 
@@ -265,13 +335,23 @@ class in_impl : public implicit_convertable<T>{
 
         template<auto P>
         if_impl<T> _if(pred<P>&& predicate){
-            PredFunctor<T> predFunctor = predicate.predFunctor;
+            PredFunctor<T> predFunctor = P;
             return if_impl<T>(std::move(*this), std::move(predFunctor));
         }
 
         if_impl<T> _if(placeholder&) {
-            PredFunctor<T> predFunctor = [](auto val) { return true; };
+            PredFunctor<T> predFunctor = [](const auto& val) { return true; };
             return if_impl<T>(std::move(*this), std::move(predFunctor));
+        }
+
+        template<typename TT>
+        if_impl<T> _if(proxy_bool<TT> &&proxy){
+            PredFunctor<T> pred = [&](auto arg) { return proxy.get_pred()(arg); };
+            return if_impl<T>(std::move(*this), std::move(pred));
+        }
+
+        if_impl<T> _if(proxy_bool<T> &&proxy){
+            return if_impl<T>(std::move(*this), proxy.get_pred());
         }
 };
 
@@ -349,6 +429,36 @@ class placeholder{
 
         impl::for_impl<0> _for(placeholder&){
             return impl::for_impl<0>{};
+        }
+
+        template<typename T>
+        impl::proxy_bool<T> operator==(T&& value){
+            return impl::proxy_bool<T>(impl::bool_flag::equals, std::forward<T>(value));
+        }
+
+        template<typename T>
+        impl::proxy_bool<T> operator!=(T&& value){
+            return impl::proxy_bool<T>(impl::bool_flag::nequals, std::forward<T>(value));
+        }
+
+        template<typename T>
+        impl::proxy_bool<T> operator<(T&& value){
+            return impl::proxy_bool<T>(impl::bool_flag::lthan, std::forward<T>(value));
+        }
+
+        template<typename T>
+        impl::proxy_bool<T> operator>(T&& value){
+            return impl::proxy_bool<T>(impl::bool_flag::gthan, std::forward<T>(value));
+        }
+
+        template<typename T>
+        impl::proxy_bool<T> operator<=(T&& value){
+            return impl::proxy_bool<T>(impl::bool_flag::lthaneq, std::forward<T>(value));
+        }
+
+        template<typename T>
+        impl::proxy_bool<T> operator>=(T&& value){
+            return impl::proxy_bool<T>(impl::bool_flag::gthaneq, std::forward<T>(value));
         }
 
 }_i,_j,_k;
