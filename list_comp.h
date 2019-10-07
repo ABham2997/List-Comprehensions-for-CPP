@@ -105,10 +105,10 @@ class iterator : public std::iterator<std::forward_iterator_tag, OutT> {
         iterator(const Iter_t &_iter, const Iter_t &_end, implicit_convertable<OutT>* _enclosing) : 
         iter{_iter}, end{_end}, enclosing{_enclosing} {
             get_next();
-            update_val();
         };
 
         OutT &operator*(){
+            update_val();
             return *iter;
         }
 
@@ -196,15 +196,6 @@ class implicit_convertable{
 
         iterator<OutT> end() {
             return iterator<OutT>(vec().end(),vec().end(),this);
-        }
-
-        operator OutT*(){
-            return &vec()[0];
-        }
-
-        template<typename TT, typename=std::void_t<decltype(TT(std::declval<OutT>()))>>
-        operator TT*() {
-            return &vec()[0];
         }
 
         ADD_LIST_COMP_OPERATOR(std::vector, OutT);
@@ -430,22 +421,22 @@ class for_impl{
         template <template<typename> typename Cont, typename T>
         auto _in(const Cont<T> &container){
             static_assert(is_cont_v<Cont,T>, "argument to _in is not a container type");
-            using TT = decltype(F(std::declval<T>()));
-            std::vector<TT> vec;
+            using RT = decltype(F(std::declval<T>()));
+            std::vector<RT> vec;
             for(const auto &i:container){
                 vec.push_back(F(i));
             }
-            return in_impl<TT>(std::move(vec));
+            return in_impl<RT>(std::move(vec));
         }
 
         template <typename T>
         auto _in(std::initializer_list<T> &&container){
-            using TT = decltype(F(std::declval<T>()));
-            std::vector<TT> vec;
+            using RT = decltype(F(std::declval<T>()));
+            std::vector<RT> vec;
             for(const auto &i:container){
                 vec.push_back(F(i));
             }
-            return in_impl<TT>(std::move(vec));
+            return in_impl<RT>(std::move(vec));
         }
 };
 
