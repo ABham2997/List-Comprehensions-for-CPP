@@ -163,14 +163,14 @@ class iterator : public std::iterator<std::forward_iterator_tag, OutT> {
         }
 };
 
-struct pred_flag{
-};
+struct PredFlag{
+} pred_flag;
 
-struct else_flag{
-};
+struct ElseFlag{
+} else_flag;
 
-struct trans_flag{
-};
+struct TransFlag{
+} trans_flag;
 
 #ifdef LISTCOMP_CONVERTABLES
 template<typename InT, typename OutT, template<typename...> typename... Ts>
@@ -208,10 +208,10 @@ class implicit_convertable{
         }
 
     public:
-        implicit_convertable(implicit_convertable<InT,OutT>&& other, PredFunctor<OutT>&& predFunc, pred_flag=pred_flag{}) : 
+        implicit_convertable(implicit_convertable<InT,OutT>&& other, PredFunctor<OutT>&& predFunc, PredFlag&) : 
             vect(other.vect), hasTrans{other.hasTrans}, hasPred{predFunc} {};
         
-        implicit_convertable(implicit_convertable<InT,OutT>&& other, ElseFunctor<InT,OutT>&& elseFunc, else_flag=else_flag{}) : 
+        implicit_convertable(implicit_convertable<InT,OutT>&& other, ElseFunctor<InT,OutT>&& elseFunc, ElseFlag&) : 
             vect(other.vect), hasTrans{other.hasTrans}, hasPred{other.hasPred}, hasElse{elseFunc} {};
 
         template <typename TT>
@@ -309,21 +309,21 @@ class if_impl : public implicit_convertable<InT,OutT>{
         template<auto F>
         else_impl<InT,OutT> _else(trans<F>&&){
             ElseFunctor<InT,OutT> elseFunctor = F;
-            return else_impl<InT,OutT>(std::move(*this), std::move(elseFunctor),else_flag{});
+            return else_impl<InT,OutT>(std::move(*this), std::move(elseFunctor),else_flag);
         }
 
         else_impl<InT,OutT> _else(placeholder&){
             ElseFunctor<InT,OutT> elseFunctor = [&](const auto &arg) { return arg; };
-            return else_impl<InT,OutT>(std::move(*this), std::move(elseFunctor),else_flag{});
+            return else_impl<InT,OutT>(std::move(*this), std::move(elseFunctor),else_flag);
         }
 
         else_impl<InT,OutT> _else(const InT& val){
             ElseFunctor<InT,OutT> elseFunctor = [&] (const auto& arg) { return val; };
-            return else_impl<InT,OutT>(std::move(*this), std::move(elseFunctor),else_flag{});
+            return else_impl<InT,OutT>(std::move(*this), std::move(elseFunctor),else_flag);
         }
 
         else_impl<InT,OutT> _else(proxy_trans<InT>&& proxy){
-            return else_impl<InT,OutT>(std::move(*this), proxy.get_else(),else_flag{});
+            return else_impl<InT,OutT>(std::move(*this), proxy.get_else(),else_flag);
         }
 };
 
@@ -423,27 +423,27 @@ class in_impl : public implicit_convertable<InT,OutT>{
         template<auto P>
         if_impl<InT,OutT> _if(pred<P>&&){
             PredFunctor<InT> predFunctor = P;
-            return if_impl<InT,OutT>(std::move(*this), std::move(predFunctor),pred_flag{});
+            return if_impl<InT,OutT>(std::move(*this), std::move(predFunctor),pred_flag);
         }
 
         if_impl<InT,OutT> _if(placeholder&) {
             PredFunctor<InT> predFunctor = [] (const auto& val) ->bool { return val; };
-            return if_impl<InT,OutT>(std::move(*this), std::move(predFunctor),pred_flag{});
+            return if_impl<InT,OutT>(std::move(*this), std::move(predFunctor),pred_flag);
         }
 
         template<typename TT>
         if_impl<InT,OutT> _if(proxy_bool<TT> &&proxy){
             PredFunctor<InT> pred = [&](auto arg) { return proxy.get_pred()(arg); };
-            return if_impl<InT,OutT>(std::move(*this), std::move(pred),pred_flag{});
+            return if_impl<InT,OutT>(std::move(*this), std::move(pred),pred_flag);
         }
 
         if_impl<InT,OutT> _if(proxy_bool<InT> &&proxy){
-            return if_impl<InT,OutT>(std::move(*this), proxy.get_pred(),pred_flag{});
+            return if_impl<InT,OutT>(std::move(*this), proxy.get_pred(),pred_flag);
         }
 
         if_impl<InT,OutT> _if(not_proxy_bool_flag&&){
             PredFunctor<InT> pred = [&](const auto &arg) ->bool { return !arg; };
-            return if_impl<InT,OutT>(std::move(*this), std::move(pred),pred_flag{});
+            return if_impl<InT,OutT>(std::move(*this), std::move(pred),pred_flag);
         }
 };
 
@@ -483,6 +483,60 @@ class for_impl<0>{
         auto _in(std::initializer_list<T> &&container){
             return in_impl<T,T>(std::vector<T>(container));
         }
+};
+
+template<typename T>
+struct _range {
+    T limit;
+    T init;
+    T jump;
+
+    _range() = delete;
+    _range(T val) : init{0}, limit{val}, jump{1} {};
+    _range(T in, T end) : init{in}, limit{end}, jump{1} {};
+    _range(T in, T end, T j) : init{in}, limit{end}, jump{j} {};
+
+    struct iter : public std::iterator<std::forward_iterator_tag,T> {
+        T value;
+        T jump;
+
+        iter(T val, T j) : value{val}, jump{j} {};
+
+        T operator*() { return value; }
+
+        iter &operator++() { value+=jump;
+            return *this;
+        }
+
+        iter operator++(int) { value+=jump;
+            return iter{value - jump, jump};
+        }
+
+        iter &operator--() { value-=jump;
+            return *this;
+        }
+
+        iter operator--(int) { value-=jump;
+            return iter{value + jump, jump};
+        }
+
+        bool operator==(const iter& other) const {
+            if(jump>0){
+                return value >= other.value;
+            }
+            return value <= other.value;
+        }
+
+        bool operator!=(const iter& other) const {
+            if(jump>0){
+                return value < other.value;
+            }
+                return value > other.value;
+        }
+    };
+
+    auto begin() const { return iter{init, jump}; }
+    auto end() const { return iter{limit, jump}; }
 };
 
 } //namespace impl
@@ -651,6 +705,16 @@ class trans{
             return impl::for_impl<F>{};
         }
 };
+
+template<typename T, typename=std::enable_if_t<std::is_arithmetic_v<T>>>
+impl::_range<T> _range(T start, T end, T jump=1){
+    return impl::_range<T>{start, end, jump};
+}
+
+template<typename T, typename=std::enable_if_t<std::is_arithmetic_v<T>>>
+impl::_range<T> _range(T end){
+    return impl::_range<T>{end};
+}
 
 } //namespace listcomp
 

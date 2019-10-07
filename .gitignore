@@ -3,3 +3,4 @@ build
 .vscode
 bin/unittest
 .idea
+test
