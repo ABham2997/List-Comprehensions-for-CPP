@@ -86,9 +86,9 @@ int main(){
 
     placeholder i,j;
 
-    std::vector<char> cv = trans<to_char>(i)._for(i)._in(v);
+    std::vector<char> cv = trans<to_char>(i)._for(i)._in(v)._if(pred<is_odd>(i))._else('a');
 
-    std::vector<int> av = i._for(i)._in(v);
+    std::vector<int> av = trans<sqr>(i)._for(i)._in(v);
 
     std::deque<int> vv = trans<sqr>(i)._for(i)._in(v)._if(pred<is_even>(i));
 
@@ -96,9 +96,9 @@ int main(){
 
     my_iter<float> myit = i._for(i)._in({10,20,30,40,50})._if(40.0<=i _and i>=20 _or i==10 _or pred<is_sqr>(i))._else(0);
 
-    my_iter_2<double> myit2 = i._for(i)._in({0, 2, 3, 4, 5, 9, 15, 16, 20, 25})._if(i==9)._else(i+100);
+    my_iter_2<double> myit2 = i._for(i)._in({0, 2, 3, 4, 5, 9, 15, 16, 20, 25})._if(i)._else(i+100);
 
-    for(const auto& ii: myit){
+    for(const auto& ii: cv){
         std::cout << ii << ", ";
     }
 
