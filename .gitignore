@@ -1,6 +1,7 @@
 cmake-build-debug
 build
 .vscode
-bin/unittest
+bin
 .idea
-tests
+tests.cpp
+CMakeLists.txt

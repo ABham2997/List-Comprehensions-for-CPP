@@ -14,13 +14,13 @@
 #include<forward_list>
 #endif
 
-#ifndef LISTCOMP_DISABLE_OR_AND
+#ifndef LISTCOMP_DISABLE_OR_AND_NOT
 #define _or ||
 #define _and &&
 #define _not !
 #endif
 
-namespace listcomp{
+namespace pylistcomp{
 
 class placeholder;
 template<auto> class trans;
@@ -62,8 +62,8 @@ struct is_cont_impl : std::false_type{
 };
 
 template<template<typename...> typename Cont, typename T>
-struct is_cont_impl<Cont, T, std::void_t<decltype(*(std::declval<Cont<T>>().begin())), decltype(*(std::declval<Cont<T>>().end()))>> :
-    std::true_type{
+struct is_cont_impl<Cont, T, std::void_t<decltype(std::vector<T>((std::declval<Cont<T>>().begin()),(std::declval<Cont<T>>().end())))>> 
+: std::true_type{
 };
 
 template <template <typename...> typename Cont, typename T>
@@ -198,8 +198,6 @@ class implicit_convertable{
         std::optional<ElseFunctor<InT,OutT>> hasElse = std::nullopt;
         std::optional<TransFunctor<InT,OutT>> hasTrans = std::nullopt;
 
-        implicit_convertable() : vect{} {};
-
         template<typename,typename> friend class iterator;
 
     protected:
@@ -215,7 +213,7 @@ class implicit_convertable{
             vect(other.vect), hasTrans{other.hasTrans}, hasPred{other.hasPred}, hasElse{elseFunc} {};
 
         template <typename TT>
-        implicit_convertable(const TT &begin, const TT &end) : vect(begin, end) {};
+        implicit_convertable(TT begin, TT end) : vect(begin, end) {};
 
         implicit_convertable(std::vector<InT> &&_vec) : vect(std::move(_vec)) {};
 
@@ -464,7 +462,7 @@ class for_impl{
         auto _in(std::initializer_list<T> &&container){
             using OutT = decltype(F(std::declval<T>()));
             TransFunctor<T, OutT> trans = F;
-            return in_impl<T,OutT>(std::vector(container), std::move(trans));
+            return in_impl<T,OutT>(std::vector<T>(container), std::move(trans));
         }
 };
 
@@ -480,13 +478,75 @@ class for_impl<0>{
         }
 
         template <typename T>
-        auto _in(std::initializer_list<T> &&container){
+        auto _in(const std::initializer_list<T> &container){
             return in_impl<T,T>(std::vector<T>(container));
         }
 };
 
 template<typename T>
+struct range_iter : public std::iterator<std::forward_iterator_tag,T> {
+    T value;
+    T jump;
+
+    range_iter(T val, T j) : value{val}, jump{j} {};
+
+    T operator*() { return value; }
+
+    range_iter &operator++() { 
+        value+=jump;
+        return *this;
+    }
+
+    range_iter operator++(int) { 
+        value+=jump;
+        return range_iter{value - jump, jump};
+    }
+
+    range_iter &operator--() { 
+        value-=jump;
+        return *this;
+    }
+
+    range_iter operator--(int) { 
+        value-=jump;
+        return range_iter{value + jump, jump};
+    }
+
+    bool operator==(const range_iter& other) const {
+        if(jump>0){
+            return value >= other.value;
+        }
+        return value <= other.value;
+    }
+
+    bool operator!=(const range_iter& other) const {
+        if(jump>0){
+            return value < other.value;
+        }
+            return value > other.value;
+    }
+};
+
+#ifdef LISTCOMP_CONVERTABLES
+template<typename UT, template<typename...> typename... Ts>
+struct range_impl_oper : public range_impl_oper<UT,Ts>... {
+
+};
+
+template<typename UT, template<typename...> typename T>
+struct range_impl_oper<UT,T> {
+    virtual range_iter<UT> begin() const = 0;
+    virtual range_iter<UT> end() const = 0;
+
+    ADD_LIST_COMP_OPERATOR(T, UT);
+};
+
+template<typename T>
+struct _range : public range_impl_oper<T,LISTCOMP_CONVERTABLES> {
+#else
+template<typename T>
 struct _range {
+#endif
     T limit;
     T init;
     T jump;
@@ -496,47 +556,16 @@ struct _range {
     _range(T in, T end) : init{in}, limit{end}, jump{1} {};
     _range(T in, T end, T j) : init{in}, limit{end}, jump{j} {};
 
-    struct iter : public std::iterator<std::forward_iterator_tag,T> {
-        T value;
-        T jump;
+    range_iter<T> begin() const { return range_iter<T>{init, jump}; }
+    range_iter<T> end() const { return range_iter<T>{limit, jump}; }
 
-        iter(T val, T j) : value{val}, jump{j} {};
+    ADD_LIST_COMP_OPERATOR(std::vector, T);
 
-        T operator*() { return value; }
-
-        iter &operator++() { value+=jump;
-            return *this;
-        }
-
-        iter operator++(int) { value+=jump;
-            return iter{value - jump, jump};
-        }
-
-        iter &operator--() { value-=jump;
-            return *this;
-        }
-
-        iter operator--(int) { value-=jump;
-            return iter{value + jump, jump};
-        }
-
-        bool operator==(const iter& other) const {
-            if(jump>0){
-                return value >= other.value;
-            }
-            return value <= other.value;
-        }
-
-        bool operator!=(const iter& other) const {
-            if(jump>0){
-                return value < other.value;
-            }
-                return value > other.value;
-        }
-    };
-
-    auto begin() const { return iter{init, jump}; }
-    auto end() const { return iter{limit, jump}; }
+#ifndef LISTCOMP_DISABLE_STD_CONTAINERS
+    ADD_LIST_COMP_OPERATOR(std::deque, T);
+    ADD_LIST_COMP_OPERATOR(std::list, T);
+    ADD_LIST_COMP_OPERATOR(std::forward_list, T);
+#endif
 };
 
 } //namespace impl
