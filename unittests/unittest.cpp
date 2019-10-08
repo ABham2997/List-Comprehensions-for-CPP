@@ -1,1 +1,6 @@
-#include "../list_comp.h"
+#include "../pylistcomp.h"
+
+int main(){
+
+    return 0;
+}

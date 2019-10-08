@@ -25,17 +25,6 @@ namespace pylistcomp{
 class placeholder;
 template<auto> class trans;
 
-template<auto P>
-class pred{
-    public:
-        pred(placeholder &) {};
-        pred(pred &) = delete;
-        pred(pred &&other) = default;
-        pred() = delete;
-        pred &operator=(pred &) = delete;
-        pred &operator=(pred &&) = delete;
-};
-
 namespace impl{
 
 template<typename T>
@@ -82,6 +71,47 @@ struct is_constructible<InT,OutT,std::void_t<decltype(OutT(std::declval<InT>()))
 
 template <typename InT, typename OutT>
 constexpr bool is_cons_or_same_v = std::is_same_v<InT,OutT> || is_constructible<InT, OutT>::value;
+
+template<typename T, typename...Ts>
+struct head_of{
+    using type = T;
+};
+
+template<typename T>
+struct head_of<T>{
+    using type = T;
+};
+
+template <typename... Ts>
+struct function_ptr : std::false_type {
+};
+
+template<typename RT>
+struct function_ptr<RT(*)()> : std::true_type{
+    using ReturnType = RT;
+    using ArgType = void;
+    static constexpr int ArgSize = 0;
+};
+
+template<typename RT, typename...Ts>
+struct function_ptr<RT(*)(Ts...)> : std::true_type{
+    using ReturnType = RT;
+    using ArgType = typename head_of<Ts...>::type;
+    static constexpr int ArgSize = sizeof...(Ts);
+};
+
+template<auto P>
+class pred{
+    public:
+        pred(placeholder &) {
+            
+        };
+        pred(pred &) = delete;
+        pred(pred &&other) = default;
+        pred() = delete;
+        pred &operator=(pred &) = delete;
+        pred &operator=(pred &&) = delete;
+};
 
 template<typename InT, typename OutT>
 class iterator_underlying_t : public std::iterator<std::forward_iterator_tag, OutT>{
@@ -643,7 +673,7 @@ class placeholder{
         placeholder(int i) : id{i} { inst_cnt++; }
         placeholder(placeholder&& other) : id{other.id} {};
 
-        template <auto F> friend class trans;
+        template <auto> friend class trans;
 
     public:
         placeholder() : id{inst_cnt} { inst_cnt++; }
@@ -779,20 +809,29 @@ class placeholder{
 
 }_i,_j,_k;
 
-template<auto F>
-class trans{
+template <auto F>
+class trans {
     public:
-        trans(placeholder &){};
+        trans(placeholder &) {
+            using FuncSpec = impl::function_ptr<decltype(F)>;
+            static_assert(FuncSpec::value, "only function pointers can be passed as template arguments to trans");
+            static_assert(FuncSpec::ArgSize == 1, "trans functions must take only one argument");
+            static_assert(!std::is_same_v<typename FuncSpec::ArgType, void>, "trans functions must not take void-type arguments");
+            static_assert(!std::is_same_v<typename FuncSpec::ReturnType, void>, "trans functions must not have void return-type");
+        };
         trans() = delete;
         trans(trans &) = delete;
         trans(trans &&) = delete;
         trans &operator=(trans &) = delete;
         trans &operator=(trans &&) = delete;
 
-        impl::for_impl<F> _for(placeholder&) {
+        impl::for_impl<F> _for(placeholder &){
             return impl::for_impl<F>{};
         }
 };
+
+template <auto F>
+using pred = impl::pred<F>;
 
 template<typename T, typename=std::enable_if_t<std::is_arithmetic_v<T>>>
 impl::_range<T> _range(T start, T end, T jump=1){
