@@ -28,7 +28,7 @@ template<auto> class trans;
 template<auto P>
 class pred{
     public:
-        pred(placeholder &_ph) {};
+        pred(placeholder &) {};
         pred(pred &) = delete;
         pred(pred &&other) = default;
         pred() = delete;
@@ -72,69 +72,118 @@ constexpr bool is_cont_v = is_cont_impl<Cont, T>::value;
 template <typename InT, typename OutT>
 class implicit_convertable;
 
+template<typename InT,typename OuT,typename=void>
+struct is_constructible : std::false_type{
+};
+
 template<typename InT, typename OutT>
-class iterator : public std::iterator<std::forward_iterator_tag, OutT> {
+struct is_constructible<InT,OutT,std::void_t<decltype(OutT(std::declval<InT>()))>> : std::true_type{
+};
+
+template <typename InT, typename OutT>
+constexpr bool is_cons_or_same_v = std::is_same_v<InT,OutT> || is_constructible<InT, OutT>::value;
+
+template<typename InT, typename OutT>
+class iterator_underlying_t : public std::iterator<std::forward_iterator_tag, OutT>{
     using Iter_t = typename std::vector<InT>::iterator;
     private:
-        Iter_t iter;
-        Iter_t end;
-        implicit_convertable<InT,OutT> *enclosing;
-
         void get_next(){
-            if(enclosing->hasPred && !enclosing->hasElse){
-                auto predFunctor = enclosing->hasPred.value();
+            if (enclosing->hasPred && !(enclosing->hasElse)) {
+                PredFunctor<InT> predFunctor = enclosing->hasPred.value();
                 while (iter != end && !predFunctor(*iter)){
                     iter++;
                 }
             }
         }
 
+    protected:
+        Iter_t iter;
+        Iter_t end;
+        implicit_convertable<InT,OutT> *enclosing;
+
+    public:
+        iterator_underlying_t &operator=(const iterator_underlying_t &other) = default;
+        iterator_underlying_t(const iterator_underlying_t &other) = default;
+        iterator_underlying_t(const Iter_t &_iter, const Iter_t &_end, implicit_convertable<InT,OutT>* _enclosing) : 
+        iter{_iter}, end{_end}, enclosing{_enclosing} {
+            get_next();
+        };        
+
+};
+
+template<typename InT, typename OutT, typename=void>
+class iterator_deref : public iterator_underlying_t<InT,OutT> {
+    using Iter_t = typename std::vector<InT>::iterator;    
+    private:
         OutT get_val(){
-            if(!(enclosing->hasTrans) && !(enclosing->hasElse)){
-                return *iter;
+            TransFunctor<InT,OutT> transFunctor = this->enclosing->hasTrans.value();
+            if(this->enclosing->hasElse){
+                PredFunctor<InT> predFunctor = this->enclosing->hasPred.value();
+                ElseFunctor<InT, OutT> elseFunctor = this->enclosing->hasElse.value();
+                return predFunctor(*(this->iter)) ? transFunctor(*(this->iter)) : elseFunctor(*(this->iter));
             }
-            else if (enclosing->hasTrans && !(enclosing->hasElse)) {
-                auto transFunctor = enclosing->hasTrans.value();
-                return transFunctor(*iter);
-            } 
-            else if(enclosing->hasTrans && enclosing->hasElse){
-                auto transFunctor = enclosing->hasTrans.value();
-                auto predFunctor = enclosing->hasPred.value();
-                auto elseFunctor = enclosing->hasElse.value();
-                if(predFunctor(*iter)){
-                    return transFunctor(*iter);
-                } 
-                else {
-                    return elseFunctor(*iter);
-                }
-            } 
-            else if(!(enclosing->hasTrans) && enclosing->hasElse){
-                auto predFunctor = enclosing->hasPred.value();
-                auto elseFunctor = enclosing->hasElse.value();
-                if(predFunctor(*iter)){
-                    return *iter;
-                } 
-                else {
-                    return elseFunctor(*iter);
-                }
-            }
-            return *iter;
+            return transFunctor(*(this->iter));
         }
 
     public:
-        iterator &operator=(const iterator &other) = default;
-        iterator(const iterator &other) = default;
-        iterator(const Iter_t &_iter, const Iter_t &_end, implicit_convertable<InT,OutT>* _enclosing) : 
-        iter{_iter}, end{_end}, enclosing{_enclosing} {
-            get_next();
-        };
+        using iterator_underlying_t<InT, OutT>::iterator_underlying_t;
+
+        auto operator*(){
+            return get_val();
+        }
+};
+
+template<typename InT, typename OutT>
+class iterator_deref<InT, OutT, std::enable_if_t<is_cons_or_same_v<InT,OutT>>> : public iterator_underlying_t<InT,OutT> {
+    using Iter_t = typename std::vector<InT>::iterator;    
+    private:
+        OutT get_val(){
+            if(!(this->enclosing->hasTrans) && !(this->enclosing->hasElse)){
+                return *(this->iter);
+            }
+            else if (this->enclosing->hasTrans && !(this->enclosing->hasElse)) {
+                TransFunctor<InT,OutT> transFunctor = this->enclosing->hasTrans.value();
+                return transFunctor(*(this->iter));
+            } 
+            else if(this->enclosing->hasTrans && this->enclosing->hasElse){
+                TransFunctor<InT,OutT> transFunctor = this->enclosing->hasTrans.value();
+                PredFunctor<InT> predFunctor = this->enclosing->hasPred.value();
+                ElseFunctor<InT,OutT> elseFunctor = this->enclosing->hasElse.value();
+                if(predFunctor(*(this->iter))){
+                    return transFunctor(*(this->iter));
+                } 
+                else {
+                    return elseFunctor(*(this->iter));
+                }
+            } 
+            else if(!(this->enclosing->hasTrans) && this->enclosing->hasElse){
+                PredFunctor<InT> predFunctor = this->enclosing->hasPred.value();
+                ElseFunctor<InT,OutT> elseFunctor = this->enclosing->hasElse.value();
+                if(predFunctor(*(this->iter))){
+                    return *(this->iter);
+                } 
+                else {
+                    return elseFunctor(*(this->iter));
+                }
+            }
+            return *(this->iter);
+        }
+
+    public:
+        using iterator_underlying_t<InT, OutT>::iterator_underlying_t;
 
         OutT operator*(){
             return get_val();
         }
+};
+
+template<typename InT, typename OutT>
+class iterator : public iterator_deref<InT,OutT> {
+    public:
+        using iterator_deref<InT, OutT>::iterator_deref;
 
         iterator &operator++(){
-            (*this) = iterator(++iter, end, enclosing);
+            (*this) = iterator(++(this->iter), this->end, this->enclosing);
             return *this;
         }
 
@@ -144,7 +193,7 @@ class iterator : public std::iterator<std::forward_iterator_tag, OutT> {
             return res;
         }
         iterator &operator--(){
-            (*this) = iterator(--iter, end, enclosing);
+            (*this) = iterator(--(this->iter), this->end, this->enclosing);
             return *this;
         }
 
@@ -155,11 +204,11 @@ class iterator : public std::iterator<std::forward_iterator_tag, OutT> {
         }
 
         bool operator==(const iterator& other){
-            return iter == other.iter;
+            return this->iter == other.iter;
         }
 
         bool operator!=(const iterator& other){
-            return iter != other.iter;
+            return this->iter != other.iter;
         }
 };
 
@@ -194,11 +243,12 @@ class implicit_convertable{
 #endif
     private:
         std::vector<InT> vect;
-        std::optional<PredFunctor<OutT>> hasPred = std::nullopt;
+        std::optional<PredFunctor<InT>> hasPred = std::nullopt;
         std::optional<ElseFunctor<InT,OutT>> hasElse = std::nullopt;
         std::optional<TransFunctor<InT,OutT>> hasTrans = std::nullopt;
 
-        template<typename,typename> friend class iterator;
+        template<typename,typename> friend class iterator_underlying_t;
+        template<typename,typename,typename> friend class iterator_deref;
 
     protected:
         auto &vec(){
@@ -464,6 +514,13 @@ class for_impl{
             TransFunctor<T, OutT> trans = F;
             return in_impl<T,OutT>(std::vector<T>(container), std::move(trans));
         }
+
+        template<typename T, size_t Size>
+        auto _in(const T(&array)[Size]){
+            using OutT = decltype(F(std::declval<T>()));
+            TransFunctor<T, OutT> trans = F;
+            return in_impl<T, OutT>(std::begin(array), std::end(array), std::move(trans));
+        }
 };
 
 template<>
@@ -480,6 +537,11 @@ class for_impl<0>{
         template <typename T>
         auto _in(const std::initializer_list<T> &container){
             return in_impl<T,T>(std::vector<T>(container));
+        }
+
+        template<typename T, size_t Size>
+        auto _in(const T(&array)[Size]){
+            return in_impl<T, T>(std::begin(array), std::end(array));
         }
 };
 
@@ -558,6 +620,8 @@ struct _range {
 
     range_iter<T> begin() const { return range_iter<T>{init, jump}; }
     range_iter<T> end() const { return range_iter<T>{limit, jump}; }
+    range_iter<T> begin() { return range_iter<T>{init, jump}; }
+    range_iter<T> end() { return range_iter<T>{limit, jump}; }
 
     ADD_LIST_COMP_OPERATOR(std::vector, T);
 
@@ -717,13 +781,8 @@ class placeholder{
 
 template<auto F>
 class trans{
-    using Func=decltype(F);
-    private:
-        placeholder &ph;
-        Func functor{F};
-
     public:
-        trans(placeholder &_ph) : ph{_ph} {};
+        trans(placeholder &){};
         trans() = delete;
         trans(trans &) = delete;
         trans(trans &&) = delete;
