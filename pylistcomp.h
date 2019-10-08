@@ -104,7 +104,11 @@ template<auto P>
 class pred{
     public:
         pred(placeholder &) {
-            
+            using FuncSpec = function_ptr<decltype(P)>;
+            static_assert(FuncSpec::value, "only function pointers can be passed as template arguments to pred");
+            static_assert(FuncSpec::ArgSize == 1, "pred functions must take exactly one argument");
+            static_assert(!std::is_same_v<typename FuncSpec::ArgType, void>, "pred functions must not take void-type arguments");
+            static_assert(is_cons_or_same_v<typename FuncSpec::ReturnType, bool>, "pred functions must have bool or bool convertable return-type");            
         };
         pred(pred &) = delete;
         pred(pred &&other) = default;
@@ -533,21 +537,21 @@ class for_impl{
         template <template<typename> typename Cont, typename T>
         auto _in(const Cont<T> &container){
             static_assert(is_cont_v<Cont,T>, "argument to _in is not a container type");
-            using OutT = decltype(F(std::declval<T>()));
+            using OutT = typename function_ptr<decltype(F)>::ReturnType;
             TransFunctor<T, OutT> trans = F;
             return in_impl<T, OutT>(container.begin(), container.end(), std::move(trans));
         }
 
         template <typename T>
         auto _in(std::initializer_list<T> &&container){
-            using OutT = decltype(F(std::declval<T>()));
+            using OutT = typename function_ptr<decltype(F)>::ReturnType;
             TransFunctor<T, OutT> trans = F;
             return in_impl<T,OutT>(std::vector<T>(container), std::move(trans));
         }
 
         template<typename T, size_t Size>
         auto _in(const T(&array)[Size]){
-            using OutT = decltype(F(std::declval<T>()));
+            using OutT = typename function_ptr<decltype(F)>::ReturnType;
             TransFunctor<T, OutT> trans = F;
             return in_impl<T, OutT>(std::begin(array), std::end(array), std::move(trans));
         }
