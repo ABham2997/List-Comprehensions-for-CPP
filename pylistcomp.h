@@ -106,7 +106,7 @@ class iterator_underlying_t : public std::iterator<std::forward_iterator_tag, Ou
     private:
         void get_next(){
             if (enclosing->hasPred && !(enclosing->hasElse)) {
-                PredFunctor<InT> predFunctor = enclosing->hasPred.value();
+                PredFunctor<InT> predFunctor = enclosing->hasPred;
                 while (iter != end && !predFunctor(*iter)){
                     iter++;
                 }
@@ -133,10 +133,10 @@ class iterator_deref : public iterator_underlying_t<InT,OutT> {
     using Iter_t = typename std::vector<InT>::iterator;    
     private:
         OutT get_val(){
-            TransFunctor<InT,OutT> transFunctor = this->enclosing->hasTrans.value();
+            TransFunctor<InT,OutT> transFunctor = this->enclosing->hasTrans;
             if(this->enclosing->hasElse){
-                PredFunctor<InT> predFunctor = this->enclosing->hasPred.value();
-                ElseFunctor<InT, OutT> elseFunctor = this->enclosing->hasElse.value();
+                PredFunctor<InT> predFunctor = this->enclosing->hasPred;
+                ElseFunctor<InT, OutT> elseFunctor = this->enclosing->hasElse;
                 return predFunctor(*(this->iter)) ? transFunctor(*(this->iter)) : elseFunctor(*(this->iter));
             }
             return transFunctor(*(this->iter));
@@ -159,13 +159,13 @@ class iterator_deref<InT, OutT, std::enable_if_t<is_cons_or_same_v<InT,OutT>>> :
                 return *(this->iter);
             }
             else if (this->enclosing->hasTrans && !(this->enclosing->hasElse)) {
-                TransFunctor<InT,OutT> transFunctor = this->enclosing->hasTrans.value();
+                TransFunctor<InT,OutT> transFunctor = this->enclosing->hasTrans;
                 return transFunctor(*(this->iter));
             } 
             else if(this->enclosing->hasTrans && this->enclosing->hasElse){
-                TransFunctor<InT,OutT> transFunctor = this->enclosing->hasTrans.value();
-                PredFunctor<InT> predFunctor = this->enclosing->hasPred.value();
-                ElseFunctor<InT,OutT> elseFunctor = this->enclosing->hasElse.value();
+                TransFunctor<InT,OutT> transFunctor = this->enclosing->hasTrans;
+                PredFunctor<InT> predFunctor = this->enclosing->hasPred;
+                ElseFunctor<InT,OutT> elseFunctor = this->enclosing->hasElse;
                 if(predFunctor(*(this->iter))){
                     return transFunctor(*(this->iter));
                 } 
@@ -174,8 +174,8 @@ class iterator_deref<InT, OutT, std::enable_if_t<is_cons_or_same_v<InT,OutT>>> :
                 }
             } 
             else if(!(this->enclosing->hasTrans) && this->enclosing->hasElse){
-                PredFunctor<InT> predFunctor = this->enclosing->hasPred.value();
-                ElseFunctor<InT,OutT> elseFunctor = this->enclosing->hasElse.value();
+                PredFunctor<InT> predFunctor = this->enclosing->hasPred;
+                ElseFunctor<InT,OutT> elseFunctor = this->enclosing->hasElse;
                 if(predFunctor(*(this->iter))){
                     return *(this->iter);
                 } 
@@ -260,9 +260,9 @@ class implicit_convertable{
 #endif
     private:
         std::vector<InT> vect;
-        std::optional<PredFunctor<InT>> hasPred = std::nullopt;
-        std::optional<ElseFunctor<InT,OutT>> hasElse = std::nullopt;
-        std::optional<TransFunctor<InT,OutT>> hasTrans = std::nullopt;
+        PredFunctor<InT> hasPred = nullptr;
+        ElseFunctor<InT,OutT> hasElse = nullptr;
+        TransFunctor<InT,OutT> hasTrans = nullptr;
 
         template<typename,typename> friend class iterator_underlying_t;
         template<typename,typename,typename> friend class iterator_deref;
@@ -273,7 +273,7 @@ class implicit_convertable{
         }
 
     public:
-        implicit_convertable(implicit_convertable<InT,OutT>&& other, PredFunctor<OutT>&& predFunc, PredFlag&) : 
+        implicit_convertable(implicit_convertable<InT,OutT>&& other, PredFunctor<InT>&& predFunc, PredFlag&) : 
             vect(other.vect), hasTrans{other.hasTrans}, hasPred{predFunc} {};
         
         implicit_convertable(implicit_convertable<InT,OutT>&& other, ElseFunctor<InT,OutT>&& elseFunc, ElseFlag&) : 
@@ -360,11 +360,6 @@ class proxy_trans{
                     break;
             }
         } 
-};
-
-template<>
-class proxy_trans<void>{
-    
 };
 
 template<typename InT, typename OutT>
