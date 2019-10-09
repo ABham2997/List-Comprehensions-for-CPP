@@ -100,23 +100,6 @@ struct function_ptr<RT(*)(Ts...)> : std::true_type{
     static constexpr int ArgSize = sizeof...(Ts);
 };
 
-template<auto P>
-class pred{
-    public:
-        pred(placeholder &) {
-            using FuncSpec = function_ptr<decltype(P)>;
-            static_assert(FuncSpec::value, "only function pointers can be passed as template arguments to pred");
-            static_assert(FuncSpec::ArgSize == 1, "pred functions must take exactly one argument");
-            static_assert(!std::is_same_v<typename FuncSpec::ArgType, void>, "pred functions must not take void-type arguments");
-            static_assert(is_cons_or_same_v<typename FuncSpec::ReturnType, bool>, "pred functions must have bool or bool convertable return-type");            
-        };
-        pred(pred &) = delete;
-        pred(pred &&other) = default;
-        pred() = delete;
-        pred &operator=(pred &) = delete;
-        pred &operator=(pred &&) = delete;
-};
-
 template<typename InT, typename OutT>
 class iterator_underlying_t : public std::iterator<std::forward_iterator_tag, OutT>{
     using Iter_t = typename std::vector<InT>::iterator;
@@ -297,14 +280,10 @@ class implicit_convertable{
             vect(other.vect), hasTrans{other.hasTrans}, hasPred{other.hasPred}, hasElse{elseFunc} {};
 
         template <typename TT>
-        implicit_convertable(TT begin, TT end) : vect(begin, end) {};
-
-        implicit_convertable(std::vector<InT> &&_vec) : vect(std::move(_vec)) {};
+        implicit_convertable(const TT &begin, const TT &end) : vect(begin, end) {};
 
         template <typename TT>
         implicit_convertable(const TT &begin, const TT &end, TransFunctor<InT,OutT>&& trans) : vect(begin, end) , hasTrans{trans} {};
-
-        implicit_convertable(std::vector<InT> &&_vec, TransFunctor<InT,OutT>&& trans) : vect(std::move(_vec)), hasTrans{trans} {};
 
         iterator<InT,OutT> begin() {
             return iterator<InT,OutT>(vec().begin(),vec().end(),this);
@@ -350,7 +329,7 @@ class proxy_trans{
         proxy_trans(oper_flag flag, const InT& value){
             switch(flag){
                 case oper_flag::mult:
-                    elseFunc = [&](auto arg) { return arg * value; };
+                    elseFunc = [&](const auto& arg) { return arg * value; };
                     break;
                 case oper_flag::div:
                     elseFunc = [&](const auto& arg) { return arg / value; };
@@ -383,6 +362,11 @@ class proxy_trans{
         } 
 };
 
+template<>
+class proxy_trans<void>{
+    
+};
+
 template<typename InT, typename OutT>
 class if_impl : public implicit_convertable<InT,OutT>{
     public:
@@ -390,7 +374,8 @@ class if_impl : public implicit_convertable<InT,OutT>{
 
         template<auto F>
         else_impl<InT,OutT> _else(trans<F>&&){
-            ElseFunctor<InT,OutT> elseFunctor = F;
+            static_assert(is_cons_or_same_v<typename function_ptr<decltype(F)>::ReturnType,OutT>);
+            ElseFunctor<InT, OutT> elseFunctor = F;
             return else_impl<InT,OutT>(std::move(*this), std::move(elseFunctor),else_flag);
         }
 
@@ -407,10 +392,32 @@ class if_impl : public implicit_convertable<InT,OutT>{
         else_impl<InT,OutT> _else(proxy_trans<InT>&& proxy){
             return else_impl<InT,OutT>(std::move(*this), proxy.get_else(),else_flag);
         }
+
+        else_impl<InT,OutT> _else(ElseFunctor<InT,OutT> elseFunctor){
+            return else_impl<InT, OutT>(std::move(*this), std::move(elseFunctor), else_flag);
+        }
 };
 
 enum class bool_flag{
     equals, nequals, lthan, gthan, lthaneq, gthaneq, requals, rnequals, rlthan, rgthan, rlthaneq, rgthaneq
+};
+
+template<auto P>
+class pred{
+    public:
+        pred(placeholder &) {
+            using FuncSpec = function_ptr<decltype(P)>;
+            static_assert(FuncSpec::value, "only function pointers can be passed as template arguments to pred");
+            static_assert(FuncSpec::ArgSize == 1, "pred functions must take exactly one argument");
+            static_assert(!std::is_same_v<typename FuncSpec::ArgType, void>, "pred functions must not take void-type arguments");
+            static_assert(is_cons_or_same_v<typename FuncSpec::ReturnType, bool>, "pred functions must have bool or bool convertable return-type");            
+        };
+        pred(pred &) = delete;
+        pred(pred &&other) = default;
+        pred() = delete;
+        pred &operator=(pred &) = delete;
+        pred &operator=(pred &&) = delete;
+
 };
 
 template<typename T>
@@ -426,25 +433,25 @@ class proxy_bool{
             return predFunc;
         }
 
-        proxy_bool(bool_flag flag, const T& value){
+        proxy_bool(bool_flag flag, const T& value, bool negative=false){
             switch(flag){
                 case bool_flag::equals:
-                    predFunc = [&](auto arg) { return arg == value; };
+                    predFunc = [&,negative](auto arg) { return negative ? !(arg==value) : arg == value; };
                     break;
                 case bool_flag::nequals:
-                    predFunc = [&](auto arg) { return arg != value; };
+                    predFunc = [&,negative](auto arg) { return negative ? !(arg!=value) : arg != value; };
                     break;
                 case bool_flag::lthan:
-                    predFunc = [&](auto arg) { return arg < value; };
+                    predFunc = [&,negative](auto arg) { return negative ? !(arg<value) : arg < value; };
                     break;
                 case bool_flag::gthan:
-                    predFunc = [&](auto arg) { return arg > value; };
+                    predFunc = [&,negative](auto arg) { return negative ? !(arg>value) : arg > value; };
                     break;
                 case bool_flag::lthaneq:
-                    predFunc = [&](auto arg) { return arg <= value; };
+                    predFunc = [&,negative](auto arg) { return negative ? !(arg<=value) : arg <= value; };
                     break;
                 case bool_flag::gthaneq:
-                    predFunc = [&](auto arg) { return arg >= value; };
+                    predFunc = [&,negative](auto arg) { return negative ? !(arg>=value) : arg >= value; };
                     break;
                 case bool_flag::requals:
                     predFunc = [&](auto arg) { return value == arg; };
@@ -494,7 +501,49 @@ class proxy_bool{
         }
 };
 
-class not_proxy_bool_flag{
+class not_proxy_bool{
+    public:
+        not_proxy_bool() = default;
+
+        template<typename T>
+        proxy_bool<T> operator==(T&& value){
+            return proxy_bool<T>(bool_flag::equals, std::forward<T>(value), true);
+        }
+
+        template<typename T>
+        proxy_bool<T> operator!=(T&& value){
+            return proxy_bool<T>(bool_flag::nequals, std::forward<T>(value), true);
+        }
+
+        template<typename T>
+        proxy_bool<T> operator<(T&& value){
+            return proxy_bool<T>(bool_flag::lthan, std::forward<T>(value), true);
+        }
+
+        template<typename T>
+        proxy_bool<T> operator>(T&& value){
+            return proxy_bool<T>(bool_flag::gthan, std::forward<T>(value), true);
+        }
+
+        template<typename T>
+        proxy_bool<T> operator<=(T&& value){
+            return proxy_bool<T>(bool_flag::gthaneq, std::forward<T>(value), true);
+        }
+
+        template<typename T>
+        proxy_bool<T> operator>=(T&& value){
+            return proxy_bool<T>(bool_flag::lthaneq, std::forward<T>(value), true);
+        }
+
+        template<typename T>
+        proxy_bool<T> operator&&(const proxy_bool<T>& other){
+            return proxy_bool<T>{[=](const auto &arg) { return !arg && other.get_pred()(arg); }};
+        }
+
+        template<typename T>
+        proxy_bool<T> operator||(const proxy_bool<T>& other){
+            return proxy_bool<T>{[=](const auto &arg) { return !arg || other.get_pred()(arg); }};
+        }
 };
 
 template<typename InT, typename OutT>
@@ -523,9 +572,13 @@ class in_impl : public implicit_convertable<InT,OutT>{
             return if_impl<InT,OutT>(std::move(*this), proxy.get_pred(),pred_flag);
         }
 
-        if_impl<InT,OutT> _if(not_proxy_bool_flag&&){
+        if_impl<InT,OutT> _if(not_proxy_bool&&){
             PredFunctor<InT> pred = [&](const auto &arg) ->bool { return !arg; };
             return if_impl<InT,OutT>(std::move(*this), std::move(pred),pred_flag);
+        }
+
+        if_impl<InT,OutT> _if(PredFunctor<InT> predF){
+            return if_impl<InT, OutT>(std::move(*this), std::move(predF), pred_flag);
         }
 };
 
@@ -546,7 +599,7 @@ class for_impl{
         auto _in(std::initializer_list<T> &&container){
             using OutT = typename function_ptr<decltype(F)>::ReturnType;
             TransFunctor<T, OutT> trans = F;
-            return in_impl<T,OutT>(std::vector<T>(container), std::move(trans));
+            return in_impl<T,OutT>(std::begin(container), std::end(container), std::move(trans));
         }
 
         template<typename T, size_t Size>
@@ -570,7 +623,7 @@ class for_impl<0>{
 
         template <typename T>
         auto _in(const std::initializer_list<T> &container){
-            return in_impl<T,T>(std::vector<T>(container));
+            return in_impl<T,T>(std::begin(container),std::end(container));
         }
 
         template<typename T, size_t Size>
@@ -757,8 +810,18 @@ class placeholder{
             return impl::proxy_bool<T>(impl::bool_flag::rgthaneq, std::forward<T>(value));
         }
 
-        impl::not_proxy_bool_flag operator!(){
-            return impl::not_proxy_bool_flag{};
+        impl::not_proxy_bool operator!(){
+            return impl::not_proxy_bool{};
+        }
+
+        template<typename T>
+        impl::proxy_bool<T> operator&&(const impl::proxy_bool<T>& proxy){
+            return impl::proxy_bool<T>{[&](const auto &arg) { return arg && proxy.get_pred()(arg); }};
+        }
+
+        template<typename T>
+        impl::proxy_bool<T> operator||(const impl::proxy_bool<T>& proxy){
+            return impl::proxy_bool<T>{[&](const auto &arg) { return arg || proxy.get_pred()(arg); }};
         }
 
         template<typename T>
