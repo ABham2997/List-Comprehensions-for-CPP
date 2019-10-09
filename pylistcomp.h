@@ -379,7 +379,7 @@ class if_impl : public implicit_convertable<InT,OutT>{
             return else_impl<InT,OutT>(std::move(*this), std::move(elseFunctor),else_flag);
         }
 
-        else_impl<InT,OutT> _else(const InT& val){
+        else_impl<InT,OutT> _else(const OutT& val){
             ElseFunctor<InT,OutT> elseFunctor = [&] (const auto& arg) { return val; };
             return else_impl<InT,OutT>(std::move(*this), std::move(elseFunctor),else_flag);
         }
