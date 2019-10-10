@@ -319,6 +319,8 @@ class proxy_trans{
             return elseFunc;
         }
 
+        proxy_trans(ElseFunctor<InT, InT> _elseFunc) : elseFunc{_elseFunc} {};
+
         proxy_trans(oper_flag flag, const InT& value){
             switch(flag){
                 case oper_flag::mult:
@@ -390,24 +392,6 @@ enum class bool_flag{
     equals, nequals, lthan, gthan, lthaneq, gthaneq, requals, rnequals, rlthan, rgthan, rlthaneq, rgthaneq
 };
 
-template<auto P>
-class pred{
-    public:
-        pred(placeholder &) {
-            using FuncSpec = function_ptr<decltype(P)>;
-            static_assert(FuncSpec::value, "only function pointers can be passed as template arguments to pred");
-            static_assert(FuncSpec::ArgSize == 1, "pred functions must take exactly one argument");
-            static_assert(!std::is_same_v<typename FuncSpec::ArgType, void>, "pred functions must not take void-type arguments");
-            static_assert(is_cons_or_same_v<typename FuncSpec::ReturnType, bool>, "pred functions must have bool or bool convertable return-type");            
-        };
-        pred(pred &) = delete;
-        pred(pred &&other) = default;
-        pred() = delete;
-        pred &operator=(pred &) = delete;
-        pred &operator=(pred &&) = delete;
-
-};
-
 template<typename T>
 class proxy_bool{
     private:
@@ -469,19 +453,9 @@ class proxy_bool{
             return PredFunctor<T>{ [=](const auto& arg) { return predFunc(arg) && other.predFunc(arg); } };
         }
 
-        template<auto P>
-        proxy_bool operator&&(const pred<P>&){
-            return PredFunctor<T>{[=](const auto &arg) { return P(arg) && predFunc(arg); }};
-        }
-
         template<typename TT>
         proxy_bool operator||(const proxy_bool<TT>& other){
             return PredFunctor<T>{ [=](const auto& arg) { return predFunc(arg) || other.predFunc(arg); } };
-        }
-
-        template<auto P>
-        proxy_bool operator||(const pred<P>&){
-            return PredFunctor<T>{[=](const auto &arg) { return predFunc(arg) || P(arg); }};
         }
 
         proxy_bool operator!(){
@@ -539,12 +513,6 @@ class in_impl : public implicit_convertable<InT,OutT,Iterator>{
     public:
         using implicit_convertable<InT,OutT,Iterator>::implicit_convertable;
 
-        template<auto P>
-        if_impl<InT,OutT,Iterator> _if(pred<P>&&){
-            PredFunctor<InT> predFunctor = P;
-            return if_impl<InT,OutT,Iterator>(std::move(*this), std::move(predFunctor),pred_flag);
-        }
-
         if_impl<InT,OutT,Iterator> _if(placeholder&) {
             PredFunctor<InT> predFunctor = [] (const auto& val) ->bool { return val; };
             return if_impl<InT,OutT,Iterator>(std::move(*this), std::move(predFunctor),pred_flag);
@@ -581,7 +549,6 @@ class for_impl{
             using OutT = typename function_ptr<decltype(F)>::ReturnType;
             TransFunctor<T, OutT> trans = F;
             using Iterator = decltype(container.begin());
-            static_assert(std::is_same_v<decltype(container.begin()), decltype(container.end())>);
             return in_impl<T, OutT, Iterator>(container.begin(), container.end(), std::move(trans));
         }
 
@@ -590,7 +557,6 @@ class for_impl{
             using OutT = typename function_ptr<decltype(F)>::ReturnType;
             TransFunctor<T, OutT> trans = F;
             using Iterator = decltype(std::begin(container));
-            static_assert(std::is_same_v<decltype(std::begin(container)), decltype(std::end(container))>);
             return in_impl<T, OutT, Iterator>(std::begin(container), std::end(container), std::move(trans));
         }
 
@@ -599,7 +565,6 @@ class for_impl{
             using OutT = typename function_ptr<decltype(F)>::ReturnType;
             TransFunctor<T, OutT> trans = F;
             using Iterator = decltype(std::begin(array));
-            static_assert(std::is_same_v<decltype(std::begin(array)), decltype(std::end(array))>);
             return in_impl<T, OutT, Iterator>(std::begin(array), std::end(array), std::move(trans));
         }
 };
@@ -620,14 +585,12 @@ class for_impl<0>{
         template <typename T>
         auto _in(const std::initializer_list<T> &container){
             using Iterator = decltype(std::begin(container));
-            static_assert(std::is_same_v<decltype(std::begin(container)), decltype(std::end(container))>);
             return in_impl<T,T,Iterator>(std::begin(container),std::end(container));
         }
 
         template<typename T, size_t Size>
         auto _in(const T(&array)[Size]){
             using Iterator = decltype(std::begin(array));
-            static_assert(std::is_same_v<decltype(std::begin(array)), decltype(std::end(array))>);
             return in_impl<T, T, Iterator>(std::begin(array), std::end(array));
         }
 };
@@ -725,7 +688,7 @@ class placeholder{
     private:
         const int id;
 
-        inline static char inst_cnt = 0;
+        inline static int inst_cnt = 0;
 
         placeholder(int i) : id{i} { inst_cnt++; }
         placeholder(placeholder&& other) : id{other.id} {};
@@ -814,6 +777,56 @@ class placeholder{
             return impl::not_proxy_bool{};
         }
 
+        template<template<typename> typename Cont, typename T>
+        impl::proxy_bool<T> _in(const Cont<T>& container){
+            static_assert(impl::is_cont_v<Cont, T>, "must be container type");
+            return impl::proxy_bool<T>{
+                [&](const auto &arg) {
+                    return std::find(container.begin(), container.end(), arg) != container.end();
+                }};
+        }
+
+        template <typename T>
+        impl::proxy_bool<T> _in(const std::initializer_list<T> &container){
+            return impl::proxy_bool<T>{
+                [&](const auto &arg) {
+                    return std::find(std::begin(container), std::end(container), arg) != std::end(container);
+                }};
+        }
+
+        template<typename T, size_t Size>
+        impl::proxy_bool<T> _in(const T(&array)[Size]){
+            return impl::proxy_bool<T>{
+                [&](const auto &arg) {
+                    return std::find(std::begin(array), std::end(array), arg) != std::end(array);
+                }};
+        }
+
+        template<template<typename> typename Cont, typename T>
+        impl::proxy_bool<T> _not_in(const Cont<T>& container){
+            static_assert(impl::is_cont_v<Cont, T>, "must be container type");
+            return impl::proxy_bool<T>{
+                [&](const auto &arg) {
+                    return std::find(container.begin(), container.end(), arg) == container.end();
+                }};
+        }
+
+        template <typename T>
+        impl::proxy_bool<T> _not_in(const std::initializer_list<T> &container){
+            return impl::proxy_bool<T>{
+                [&](const auto &arg) {
+                    return std::find(std::begin(container), std::end(container), arg) == std::end(container);
+                }};
+        }
+
+        template<typename T, size_t Size>
+        impl::proxy_bool<T> _not_in(const T(&array)[Size]){
+            return impl::proxy_bool<T>{
+                [&](const auto &arg) {
+                    return std::find(std::begin(array), std::end(array), arg) == std::end(array);
+                }};
+        }
+
         template<typename T>
         impl::proxy_bool<T> operator&&(const impl::proxy_bool<T>& proxy){
             return impl::proxy_bool<T>{[&](const auto &arg) { return arg && proxy.get_pred()(arg); }};
@@ -897,8 +910,10 @@ class trans {
         }
 };
 
-template <auto F>
-using pred = impl::pred<F>;
+template<auto P, typename T=typename impl::function_ptr<decltype(P)>::ArgType>
+impl::proxy_bool<T> pred(placeholder&){
+    return impl::proxy_bool<T>([&](const auto &arg) { return P(arg); });
+}
 
 template<typename T, typename=std::enable_if_t<std::is_arithmetic_v<T>>>
 impl::_range<T> _range(T start, T end, T jump=1){
@@ -910,6 +925,6 @@ impl::_range<T> _range(T end){
     return impl::_range<T>{end};
 }
 
-} //namespace listcomp
+} //namespace pylistcomp
 
 #endif
