@@ -12,12 +12,12 @@ Have you ever admired the flexibility, power and intuitiveness of list comprehen
 int main(){
     using namespace pylistcomp;
     
-    std::vector<int> example1 = _
-            i._for(_i)._in({1,2,3,4,5}); //_i is a placeholder variable already defined in namespace listcomp
+    std::vector<int> example1 = 
+            _i._for(_i)._in({1,2,3,4,5}); //_i is a placeholder variable already defined in namespace listcomp
 
     placeholder number; //you can also declare your own placeholders
     std::vector<float> numbers{25.5,32.3,11.1, 123.4, 5.5};
-    std::deque<double> example2{ number._for(number)._in(numbers)._if(i<=30) };
+    std::deque<double> example2{ number._for(number)._in(numbers)._if(number<=30) };
 
     placeholder i;
     std::list<double> example3 = 
